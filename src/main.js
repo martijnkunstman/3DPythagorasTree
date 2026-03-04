@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTree, buildTreeManifold } from './tree.js';
+import { buildTree, buildTreeLineBased, buildTreeManifold } from './tree.js';
 import { createGUI } from './gui.js';
 import './style.css';
 
@@ -13,6 +13,7 @@ export const DEFAULTS = Object.freeze({
   angle: 45,
   twist: 0,
   branches: 3,
+  buildMode: 'standard',
   length: 2,
   shrinkFactor: 1.2,
   startDiameter: 2.0,
@@ -120,7 +121,7 @@ export function rebuild() {
   if (depthMesh) { depthMesh.geometry.dispose(); scene.remove(depthMesh); }
   if (edgesMesh) { edgesMesh.geometry.dispose(); scene.remove(edgesMesh); }
 
-  const geometry = buildTree(params);
+  const geometry = params.buildMode === 'lineBased' ? buildTreeLineBased(params) : buildTree(params);
   const edgesGeo = new THREE.EdgesGeometry(geometry);
 
   // depthMesh renders first (renderOrder 0) to seed the depth buffer

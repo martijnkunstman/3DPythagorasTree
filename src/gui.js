@@ -21,6 +21,9 @@ export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRende
   // ─── Tree ─────────────────────────────────────────────────────────────────
 
   const treeFolder = gui.addFolder('Tree');
+  treeFolder.add(params, 'buildMode', ['standard', 'lineBased'])
+    .name('Build Mode')
+    .onChange(debouncedRebuild);
   const depthCtrl = treeFolder.add(params, 'depth', 1, 12, 1)
     .name('Depth')
     .onChange(debouncedRebuild);

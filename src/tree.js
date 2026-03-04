@@ -86,6 +86,84 @@ export function buildTree(params) {
   return mergeGeometries(geometries, false);
 }
 
+/**
+ * Build tree by first generating a line-based skeleton, 
+ * then building cylinders along those lines that continuously taper.
+ */
+export function buildTreeLineBased(params) {
+  const maxDepth = params.depth;
+  const splitAngle = THREE.MathUtils.degToRad(params.angle);
+  const twistPerLevel = THREE.MathUtils.degToRad(params.twist);
+  const sides = Math.round(params.sides);
+  const trunkColor = new THREE.Color(params.trunkColor);
+  const leafColor = new THREE.Color(params.leafColor);
+
+  // Phase 1: Build the 3D model out of lines (skeleton)
+  const lines = [];
+
+  function recurseLines(parentMatrix, size, length, depth, twistAccum) {
+    const t = maxDepth > 1 ? depth / (maxDepth - 1) : 1;
+    const color = trunkColor.clone().lerp(leafColor, t);
+    const childSize = size / params.thicknessShrink;
+    const childLength = length / params.shrinkFactor;
+
+    lines.push({
+      matrix: parentMatrix.clone(),
+      length: length,
+      sizeBottom: size,
+      sizeTop: childSize, // Gets thinner smoothly
+      color: color,
+      depth: depth
+    });
+
+    if (depth < maxDepth - 1) {
+      const N = Math.round(params.branches);
+
+      for (let i = 0; i < N; i++) {
+        const azimuth = twistAccum + (2 * Math.PI * i / N);
+        const childMatrix = parentMatrix.clone()
+          .multiply(new THREE.Matrix4().makeTranslation(0, length / 2, 0))
+          .multiply(new THREE.Matrix4().makeRotationY(azimuth))
+          .multiply(new THREE.Matrix4().makeRotationZ(splitAngle))
+          .multiply(new THREE.Matrix4().makeTranslation(0, childLength / 2, 0));
+
+        recurseLines(childMatrix, childSize, childLength, depth + 1, twistAccum + twistPerLevel);
+      }
+    }
+  }
+
+  // Generate skeleton
+  recurseLines(new THREE.Matrix4(), params.startDiameter, params.length, 0, 0);
+
+  // Phase 2: Build branches based on the line model
+  const geometries = [];
+  for (const line of lines) {
+    // Cylinder geometry that gets thinner smoothly: (radiusTop, radiusBottom)
+    const geo = new THREE.CylinderGeometry(line.sizeTop / 2, line.sizeBottom / 2, line.length, sides);
+
+    geo.deleteAttribute('normal');
+    geo.deleteAttribute('uv');
+    geo.applyMatrix4(line.matrix);
+
+    const vertexCount = geo.attributes.position.count;
+    const colorsArray = new Float32Array(vertexCount * 3);
+    for (let i = 0; i < vertexCount; i++) {
+      colorsArray[i * 3 + 0] = line.color.r;
+      colorsArray[i * 3 + 1] = line.color.g;
+      colorsArray[i * 3 + 2] = line.color.b;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colorsArray, 3));
+
+    geometries.push(geo);
+  }
+
+  if (geometries.length === 0) {
+    return new THREE.BufferGeometry();
+  }
+
+  return mergeGeometries(geometries, false);
+}
+
 let manifoldModule = null;
 
 export async function initManifold() {
