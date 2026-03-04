@@ -9,7 +9,7 @@ function computeMaxDepth(branches, limit = 20000) {
   return 12;
 }
 
-export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRenderMode, saveParams, applyManifold) {
+export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRenderMode, saveParams, applyManifold, exportSTL) {
   const gui = new GUI({ title: 'Pythagoras Tree' });
 
   let debounceTimer = null;
@@ -84,7 +84,7 @@ export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRende
   // ─── View ─────────────────────────────────────────────────────────────────
 
   const viewFolder = gui.addFolder('View');
-  viewFolder.add(params, 'renderMode', ['solid', 'wireframe', 'edges', 'visible'])
+  viewFolder.add(params, 'renderMode', ['solid', 'wireframe', 'edges', 'visible', 'skeleton'])
     .name('Render Mode')
     .onChange(setRenderMode);
   viewFolder.add(params, 'viewMode', ['perspective', 'top', 'front', 'left'])
@@ -115,6 +115,12 @@ export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRende
   // ─── Actions ──────────────────────────────────────────────────────────────
 
   const actionsFolder = gui.addFolder('Actions');
+
+  actionsFolder.add({
+    exportSTL: () => {
+      if (exportSTL) exportSTL();
+    }
+  }, 'exportSTL').name('Export STL');
 
   actionsFolder.add({
     reset() {

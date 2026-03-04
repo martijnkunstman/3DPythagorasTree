@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { buildTree, buildTreeLineBased, buildTreeManifold, buildTreeManifoldLineBased } from './tree.js';
 import { createGUI } from './gui.js';
 import './style.css';
@@ -103,23 +104,29 @@ const depthOnlyMaterial = new THREE.MeshBasicMaterial({
 // Edge line material — white lines, depth-tested so back edges are hidden.
 const edgesMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: true });
 
+// Skeleton line material (multi-color vertex colors)
+const skeletonMaterial = new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 2 });
+
 // ─── Tree ────────────────────────────────────────────────────────────────────
 
 let treeMesh = null;
 let depthMesh = null;
 let edgesMesh = null;
+let skeletonMesh = null;
 
 function applyRenderModeVisibility(mode) {
   solidMaterial.wireframe = (mode === 'wireframe');
   treeMesh.visible = (mode === 'solid' || mode === 'wireframe');
   depthMesh.visible = (mode === 'visible');
   edgesMesh.visible = (mode === 'edges' || mode === 'visible');
+  if (skeletonMesh) skeletonMesh.visible = (mode === 'skeleton');
 }
 
 export function rebuild() {
   if (treeMesh) { treeMesh.geometry.dispose(); scene.remove(treeMesh); }
   if (depthMesh) { depthMesh.geometry.dispose(); scene.remove(depthMesh); }
   if (edgesMesh) { edgesMesh.geometry.dispose(); scene.remove(edgesMesh); }
+  if (skeletonMesh) { skeletonMesh.geometry.dispose(); scene.remove(skeletonMesh); skeletonMesh = null; }
 
   const geometry = params.buildMode === 'lineBased' ? buildTreeLineBased(params) : buildTree(params);
   const edgesGeo = new THREE.EdgesGeometry(geometry);
@@ -138,6 +145,11 @@ export function rebuild() {
   scene.add(edgesMesh);
   scene.add(treeMesh);
 
+  if (geometry.userData.skeletonGeo) {
+    skeletonMesh = new THREE.LineSegments(geometry.userData.skeletonGeo, skeletonMaterial);
+    scene.add(skeletonMesh);
+  }
+
   applyRenderModeVisibility(params.renderMode);
   saveParams();
 }
@@ -151,16 +163,48 @@ export async function applyManifold() {
     treeMesh.geometry.dispose();
     depthMesh.geometry.dispose();
     edgesMesh.geometry.dispose();
+    if (skeletonMesh && skeletonMesh.geometry) {
+      skeletonMesh.geometry.dispose();
+    }
 
     // Reasign new geometries
     treeMesh.geometry = geometry;
     depthMesh.geometry = geometry;
     edgesMesh.geometry = edgesGeo;
+
+    if (geometry.userData.skeletonGeo) {
+      if (skeletonMesh) {
+        skeletonMesh.geometry = geometry.userData.skeletonGeo;
+      } else {
+        skeletonMesh = new THREE.LineSegments(geometry.userData.skeletonGeo, skeletonMaterial);
+        scene.add(skeletonMesh);
+      }
+    } else if (skeletonMesh) {
+      scene.remove(skeletonMesh);
+      skeletonMesh = null;
+    }
   } catch (err) {
     console.error("Manifold operation failed:", err);
   } finally {
     document.body.style.cursor = 'default';
   }
+}
+
+export function exportSTL() {
+  if (!treeMesh) return;
+  const exporter = new STLExporter();
+  const stlString = exporter.parse(treeMesh);
+
+  const blob = new Blob([stlString], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.style.display = 'none';
+  link.href = url;
+  link.download = 'pythagoras_tree.stl';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 // ─── View / Render mode ───────────────────────────────────────────────────────
@@ -212,7 +256,7 @@ export function setView(mode) {
 
 // ─── GUI ─────────────────────────────────────────────────────────────────────
 
-createGUI(params, DEFAULTS, rebuild, perspControls, setView, setRenderMode, saveParams, applyManifold);
+createGUI(params, DEFAULTS, rebuild, perspControls, setView, setRenderMode, saveParams, applyManifold, exportSTL);
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 

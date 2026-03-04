@@ -25,6 +25,8 @@ export function buildTree(params) {
   const leafColor = new THREE.Color(params.leafColor);
 
   const geometries = [];
+  const skeletonPositions = [];
+  const skeletonColors = [];
 
   function recurse(parentMatrix, size, length, depth, twistAccum) {
     // CylinderGeometry: axis along Y, centered at origin
@@ -51,20 +53,18 @@ export function buildTree(params) {
 
     geometries.push(geo);
 
+    // Skeleton
+    const v1 = new THREE.Vector3(0, -length / 2, 0).applyMatrix4(parentMatrix);
+    const v2 = new THREE.Vector3(0, length / 2, 0).applyMatrix4(parentMatrix);
+    skeletonPositions.push(v1.x, v1.y, v1.z, v2.x, v2.y, v2.z);
+    skeletonColors.push(color.r, color.g, color.b, color.r, color.g, color.b);
+
     if (depth < maxDepth - 1) {
       const N = Math.round(params.branches);
       const childSize = size / params.thicknessShrink;
       const childLength = length / params.shrinkFactor;
 
       for (let i = 0; i < N; i++) {
-        // Distribute N children evenly around the parent's Y axis,
-        // then lean each outward by splitAngle.
-        //
-        // Two-translation trick ensures exact connection:
-        //   1. T(0, length/2, 0)      — move to parent's top in parent space
-        //   2. Ry(azimuth) * Rz(angle) — apply rotations
-        //   3. T(0, childLength/2, 0)  — offset child center up in child's local frame
-        //      so child bottom lands exactly at step 1's point
         const azimuth = twistAccum + (2 * Math.PI * i / N);
         const childMatrix = parentMatrix.clone()
           .multiply(new THREE.Matrix4().makeTranslation(0, length / 2, 0))
@@ -83,7 +83,15 @@ export function buildTree(params) {
     return new THREE.BufferGeometry();
   }
 
-  return mergeGeometries(geometries, false);
+  const merged = mergeGeometries(geometries, false);
+
+  // Attach skeleton geometry to userData
+  const skeletonGeo = new THREE.BufferGeometry();
+  skeletonGeo.setAttribute('position', new THREE.Float32BufferAttribute(skeletonPositions, 3));
+  skeletonGeo.setAttribute('color', new THREE.Float32BufferAttribute(skeletonColors, 3));
+  merged.userData.skeletonGeo = skeletonGeo;
+
+  return merged;
 }
 
 /**
@@ -137,6 +145,9 @@ export function buildTreeLineBased(params) {
 
   // Phase 2: Build branches based on the line model
   const geometries = [];
+  const skeletonPositions = [];
+  const skeletonColors = [];
+
   for (const line of lines) {
     // Cylinder geometry that gets thinner smoothly: (radiusTop, radiusBottom)
     const geo = new THREE.CylinderGeometry(line.sizeTop / 2, line.sizeBottom / 2, line.length, sides);
@@ -144,6 +155,11 @@ export function buildTreeLineBased(params) {
     geo.deleteAttribute('normal');
     geo.deleteAttribute('uv');
     geo.applyMatrix4(line.matrix);
+
+    const v1 = new THREE.Vector3(0, -line.length / 2, 0).applyMatrix4(line.matrix);
+    const v2 = new THREE.Vector3(0, line.length / 2, 0).applyMatrix4(line.matrix);
+    skeletonPositions.push(v1.x, v1.y, v1.z, v2.x, v2.y, v2.z);
+    skeletonColors.push(line.color.r, line.color.g, line.color.b, line.color.r, line.color.g, line.color.b);
 
     const vertexCount = geo.attributes.position.count;
     const colorsArray = new Float32Array(vertexCount * 3);
@@ -161,7 +177,15 @@ export function buildTreeLineBased(params) {
     return new THREE.BufferGeometry();
   }
 
-  return mergeGeometries(geometries, false);
+  const merged = mergeGeometries(geometries, false);
+
+  // Attach skeleton geometry to userData
+  const skeletonGeo = new THREE.BufferGeometry();
+  skeletonGeo.setAttribute('position', new THREE.Float32BufferAttribute(skeletonPositions, 3));
+  skeletonGeo.setAttribute('color', new THREE.Float32BufferAttribute(skeletonColors, 3));
+  merged.userData.skeletonGeo = skeletonGeo;
+
+  return merged;
 }
 
 let manifoldModule = null;
@@ -190,6 +214,8 @@ export async function buildTreeManifold(params) {
   const leafColor = new THREE.Color(params.leafColor);
 
   const mList = [];
+  const skeletonPositions = [];
+  const skeletonColors = [];
 
   function recurse(parentMatrix, size, length, depth, twistAccum) {
     // Colors
@@ -225,6 +251,12 @@ export async function buildTreeManifold(params) {
     nodeManifold = nodeManifold.transform(flatMatrix);
 
     mList.push(nodeManifold);
+
+    // Skeleton
+    const v1 = new THREE.Vector3(0, -length / 2, 0).applyMatrix4(parentMatrix);
+    const v2 = new THREE.Vector3(0, length / 2, 0).applyMatrix4(parentMatrix);
+    skeletonPositions.push(v1.x, v1.y, v1.z, v2.x, v2.y, v2.z);
+    skeletonColors.push(color.r, color.g, color.b, color.r, color.g, color.b);
 
     if (depth < maxDepth - 1) {
       const N = Math.round(params.branches);
@@ -285,6 +317,12 @@ export async function buildTreeManifold(params) {
   geo.setIndex(new THREE.BufferAttribute(finalMesh.triVerts, 1));
   geo.computeVertexNormals();
 
+  // Attach skeleton geometry to userData
+  const skeletonGeo = new THREE.BufferGeometry();
+  skeletonGeo.setAttribute('position', new THREE.Float32BufferAttribute(skeletonPositions, 3));
+  skeletonGeo.setAttribute('color', new THREE.Float32BufferAttribute(skeletonColors, 3));
+  geo.userData.skeletonGeo = skeletonGeo;
+
   return geo;
 }
 
@@ -339,7 +377,14 @@ export async function buildTreeManifoldLineBased(params) {
   recurseLines(new THREE.Matrix4(), params.startDiameter, params.length, 0, 0);
 
   // Phase 2: Convert lines to Manifold cylinders
+  const skeletonPositions = [];
+  const skeletonColors = [];
   for (const line of lines) {
+    const v1 = new THREE.Vector3(0, -line.length / 2, 0).applyMatrix4(line.matrix);
+    const v2 = new THREE.Vector3(0, line.length / 2, 0).applyMatrix4(line.matrix);
+    skeletonPositions.push(v1.x, v1.y, v1.z, v2.x, v2.y, v2.z);
+    skeletonColors.push(line.color.r, line.color.g, line.color.b, line.color.r, line.color.g, line.color.b);
+
     // Manifold.cylinder(height, radiusLow, radiusHigh, circularSegments, center = false)
     const cyl = m.Manifold.cylinder(line.length, line.sizeBottom / 2, line.sizeTop / 2, sides, true);
     let mesh = cyl.getMesh();
@@ -401,6 +446,12 @@ export async function buildTreeManifoldLineBased(params) {
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.setIndex(new THREE.BufferAttribute(finalMesh.triVerts, 1));
   geo.computeVertexNormals();
+
+  // Attach skeleton geometry to userData
+  const skeletonGeo = new THREE.BufferGeometry();
+  skeletonGeo.setAttribute('position', new THREE.Float32BufferAttribute(skeletonPositions, 3));
+  skeletonGeo.setAttribute('color', new THREE.Float32BufferAttribute(skeletonColors, 3));
+  geo.userData.skeletonGeo = skeletonGeo;
 
   return geo;
 }
