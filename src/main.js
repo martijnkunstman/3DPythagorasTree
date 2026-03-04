@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTree } from './tree.js';
+import { buildTree, buildTreeManifold } from './tree.js';
 import { createGUI } from './gui.js';
 import './style.css';
 
@@ -9,20 +9,23 @@ import './style.css';
 const STORAGE_KEY = 'pythagorasTree.params';
 
 export const DEFAULTS = Object.freeze({
-  depth:           7,
-  angle:           45,
-  twist:           0,
-  branches:        3,
-  length:          2,
-  shrinkFactor:    1.2,
-  startDiameter:   2.0,
+  depth: 7,
+  angle: 45,
+  twist: 0,
+  branches: 3,
+  length: 2,
+  shrinkFactor: 1.2,
+  startDiameter: 2.0,
   thicknessShrink: 1.5,
-  sides:           6,
-  trunkColor:      '#3b1a08',
-  leafColor:       '#2d8a2d',
+  sides: 6,
+  trunkColor: '#3b1a08',
+  leafColor: '#2d8a2d',
   autoRotateSpeed: 1.5,
-  renderMode:      'visible',
-  viewMode:        'perspective',
+  renderMode: 'visible',
+  viewMode: 'perspective',
+  manifoldSmoothness: 1.0,
+  manifoldSharpAngle: 60,
+  manifoldRefine: 2,
 });
 
 function loadSaved() {
@@ -53,8 +56,8 @@ perspCamera.position.set(0, 4, 10);
 const ORTHO_SIZE = 12;
 const orthoCamera = new THREE.OrthographicCamera(
   -ORTHO_SIZE * aspect, ORTHO_SIZE * aspect,
-   ORTHO_SIZE, -ORTHO_SIZE,
-   0.01, 500
+  ORTHO_SIZE, -ORTHO_SIZE,
+  0.01, 500
 );
 
 let activeCamera = perspCamera;
@@ -101,19 +104,19 @@ const edgesMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: 
 
 // ─── Tree ────────────────────────────────────────────────────────────────────
 
-let treeMesh   = null;
-let depthMesh  = null;
-let edgesMesh  = null;
+let treeMesh = null;
+let depthMesh = null;
+let edgesMesh = null;
 
 function applyRenderModeVisibility(mode) {
   solidMaterial.wireframe = (mode === 'wireframe');
-  treeMesh.visible  = (mode === 'solid' || mode === 'wireframe');
+  treeMesh.visible = (mode === 'solid' || mode === 'wireframe');
   depthMesh.visible = (mode === 'visible');
   edgesMesh.visible = (mode === 'edges' || mode === 'visible');
 }
 
 export function rebuild() {
-  if (treeMesh)  { treeMesh.geometry.dispose();  scene.remove(treeMesh);  }
+  if (treeMesh) { treeMesh.geometry.dispose(); scene.remove(treeMesh); }
   if (depthMesh) { depthMesh.geometry.dispose(); scene.remove(depthMesh); }
   if (edgesMesh) { edgesMesh.geometry.dispose(); scene.remove(edgesMesh); }
 
@@ -138,6 +141,27 @@ export function rebuild() {
   saveParams();
 }
 
+export async function applyManifold() {
+  document.body.style.cursor = 'wait';
+  try {
+    const geometry = await buildTreeManifold(params);
+    const edgesGeo = new THREE.EdgesGeometry(geometry);
+
+    treeMesh.geometry.dispose();
+    depthMesh.geometry.dispose();
+    edgesMesh.geometry.dispose();
+
+    // Reasign new geometries
+    treeMesh.geometry = geometry;
+    depthMesh.geometry = geometry;
+    edgesMesh.geometry = edgesGeo;
+  } catch (err) {
+    console.error("Manifold operation failed:", err);
+  } finally {
+    document.body.style.cursor = 'default';
+  }
+}
+
 // ─── View / Render mode ───────────────────────────────────────────────────────
 
 export function setRenderMode(mode) {
@@ -151,13 +175,13 @@ export function setView(mode) {
   if (mode === 'perspective') {
     perspControls.enabled = true;
     orthoControls.enabled = false;
-    activeCamera   = perspCamera;
+    activeCamera = perspCamera;
     activeControls = perspControls;
     perspControls.autoRotate = true;
   } else {
-    orthoCamera.left   = -ORTHO_SIZE * a;
-    orthoCamera.right  =  ORTHO_SIZE * a;
-    orthoCamera.top    =  ORTHO_SIZE;
+    orthoCamera.left = -ORTHO_SIZE * a;
+    orthoCamera.right = ORTHO_SIZE * a;
+    orthoCamera.top = ORTHO_SIZE;
     orthoCamera.bottom = -ORTHO_SIZE;
     orthoCamera.updateProjectionMatrix();
 
@@ -179,7 +203,7 @@ export function setView(mode) {
 
     perspControls.enabled = false;
     orthoControls.enabled = true;
-    activeCamera   = orthoCamera;
+    activeCamera = orthoCamera;
     activeControls = orthoControls;
   }
   saveParams();
@@ -187,7 +211,7 @@ export function setView(mode) {
 
 // ─── GUI ─────────────────────────────────────────────────────────────────────
 
-createGUI(params, DEFAULTS, rebuild, perspControls, setView, setRenderMode, saveParams);
+createGUI(params, DEFAULTS, rebuild, perspControls, setView, setRenderMode, saveParams, applyManifold);
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
@@ -205,9 +229,9 @@ window.addEventListener('resize', () => {
   perspCamera.aspect = a;
   perspCamera.updateProjectionMatrix();
 
-  orthoCamera.left   = -ORTHO_SIZE * a;
-  orthoCamera.right  =  ORTHO_SIZE * a;
-  orthoCamera.top    =  ORTHO_SIZE;
+  orthoCamera.left = -ORTHO_SIZE * a;
+  orthoCamera.right = ORTHO_SIZE * a;
+  orthoCamera.top = ORTHO_SIZE;
   orthoCamera.bottom = -ORTHO_SIZE;
   orthoCamera.updateProjectionMatrix();
 

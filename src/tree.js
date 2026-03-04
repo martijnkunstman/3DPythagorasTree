@@ -52,8 +52,8 @@ export function buildTree(params) {
     geometries.push(geo);
 
     if (depth < maxDepth - 1) {
-      const N           = Math.round(params.branches);
-      const childSize   = size / params.thicknessShrink;
+      const N = Math.round(params.branches);
+      const childSize = size / params.thicknessShrink;
       const childLength = length / params.shrinkFactor;
 
       for (let i = 0; i < N; i++) {
@@ -84,4 +84,128 @@ export function buildTree(params) {
   }
 
   return mergeGeometries(geometries, false);
+}
+
+let manifoldModule = null;
+
+export async function initManifold() {
+  if (!manifoldModule) {
+    const Module = (await import('manifold-3d')).default;
+    manifoldModule = await Module();
+    manifoldModule.setup();
+  }
+  return manifoldModule;
+}
+
+/**
+ * Build a true Manifold unified geometry.
+ */
+export async function buildTreeManifold(params) {
+  const m = await initManifold();
+
+  const maxDepth = params.depth;
+  const splitAngle = THREE.MathUtils.degToRad(params.angle);
+  const twistPerLevel = THREE.MathUtils.degToRad(params.twist);
+  const sides = Math.round(params.sides);
+
+  const trunkColor = new THREE.Color(params.trunkColor);
+  const leafColor = new THREE.Color(params.leafColor);
+
+  const mList = [];
+
+  function recurse(parentMatrix, size, length, depth, twistAccum) {
+    // Colors
+    const t = maxDepth > 1 ? depth / (maxDepth - 1) : 1;
+    const color = trunkColor.clone().lerp(leafColor, t);
+
+    // Create Manifold cylinder mapping along Z from -height/2 to height/2
+    const cyl = m.Manifold.cylinder(length, size / 2, size / 2, sides, true);
+    let mesh = cyl.getMesh();
+
+    // Add RGB properties (numProp = 6: X,Y,Z, R,G,B)
+    mesh.numProp = 6;
+    const newProps = new Float32Array((mesh.vertProperties.length / 3) * 6);
+    for (let i = 0, j = 0; i < mesh.vertProperties.length; i += 3, j += 6) {
+      newProps[j] = mesh.vertProperties[i];
+      newProps[j + 1] = mesh.vertProperties[i + 1];
+      newProps[j + 2] = mesh.vertProperties[i + 2];
+      newProps[j + 3] = color.r;
+      newProps[j + 4] = color.g;
+      newProps[j + 5] = color.b;
+    }
+    mesh.vertProperties = newProps;
+    let nodeManifold = new m.Manifold(mesh);
+
+    // ThreeJS cylinder is along Y. We created along Z.
+    // So rotate -90 around X to align with ThreeJS cylinder:
+    const alignMtx = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
+
+    const nodeMatrix = parentMatrix.clone().multiply(alignMtx);
+
+    // Convert to flat column-major 16-element array for transform
+    const flatMatrix = Array.from(nodeMatrix.elements);
+    nodeManifold = nodeManifold.transform(flatMatrix);
+
+    mList.push(nodeManifold);
+
+    if (depth < maxDepth - 1) {
+      const N = Math.round(params.branches);
+      const childSize = size / params.thicknessShrink;
+      const childLength = length / params.shrinkFactor;
+
+      for (let i = 0; i < N; i++) {
+        const azimuth = twistAccum + (2 * Math.PI * i / N);
+        const childMatrix = parentMatrix.clone()
+          .multiply(new THREE.Matrix4().makeTranslation(0, length / 2, 0))
+          .multiply(new THREE.Matrix4().makeRotationY(azimuth))
+          .multiply(new THREE.Matrix4().makeRotationZ(splitAngle))
+          .multiply(new THREE.Matrix4().makeTranslation(0, childLength / 2, 0));
+
+        recurse(childMatrix, childSize, childLength, depth + 1, twistAccum + twistPerLevel);
+      }
+    }
+  }
+
+  recurse(new THREE.Matrix4(), params.startDiameter, params.length, 0, 0);
+
+  if (mList.length === 0) return new THREE.BufferGeometry();
+
+  // Compute union of everything
+  let finalManifold = m.Manifold.union(mList);
+
+  // Apply smoothing if requested
+  if (params.manifoldSmoothness > 0 || params.manifoldRefine > 1) {
+    if (params.manifoldSmoothness > 0) {
+      finalManifold = finalManifold.smoothOut(params.manifoldSharpAngle, params.manifoldSmoothness);
+    }
+    if (params.manifoldRefine > 1) {
+      finalManifold = finalManifold.refine(params.manifoldRefine);
+    }
+  }
+
+  // Return to ThreeJS BufferGeometry
+  const finalMesh = finalManifold.getMesh();
+  const geo = new THREE.BufferGeometry();
+
+  const numVerts = finalMesh.vertProperties.length / finalMesh.numProp;
+  const positions = new Float32Array(numVerts * 3);
+  const colors = new Float32Array(numVerts * 3);
+
+  for (let i = 0; i < numVerts; i++) {
+    const propIdx = i * finalMesh.numProp;
+    positions[i * 3] = finalMesh.vertProperties[propIdx];
+    positions[i * 3 + 1] = finalMesh.vertProperties[propIdx + 1];
+    positions[i * 3 + 2] = finalMesh.vertProperties[propIdx + 2];
+
+    colors[i * 3] = finalMesh.vertProperties[propIdx + 3];
+    colors[i * 3 + 1] = finalMesh.vertProperties[propIdx + 4];
+    colors[i * 3 + 2] = finalMesh.vertProperties[propIdx + 5];
+  }
+
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setIndex(new THREE.BufferAttribute(finalMesh.triVerts, 1));
+  geo.computeVertexNormals();
+
+  return geo;
 }

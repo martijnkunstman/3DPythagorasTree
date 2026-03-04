@@ -9,7 +9,7 @@ function computeMaxDepth(branches, limit = 20000) {
   return 12;
 }
 
-export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRenderMode, saveParams) {
+export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRenderMode, saveParams, applyManifold) {
   const gui = new GUI({ title: 'Pythagoras Tree' });
 
   let debounceTimer = null;
@@ -88,9 +88,32 @@ export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRende
     .name('Camera')
     .onChange(setView);
 
+  // ─── Manifold3D ───────────────────────────────────────────────────────────
+
+  if (applyManifold) {
+    const manifoldFolder = gui.addFolder('Manifold3D');
+    manifoldFolder.add(params, 'manifoldSmoothness', 0, 1, 0.05)
+      .name('Smoothness')
+      .onChange(saveParams);
+    manifoldFolder.add(params, 'manifoldSharpAngle', 0, 180, 1)
+      .name('Sharp Angle (°)')
+      .onChange(saveParams);
+    manifoldFolder.add(params, 'manifoldRefine', 1, 4, 1)
+      .name('Subdivisions')
+      .onChange(saveParams);
+
+    manifoldFolder.add({
+      applyManifold: () => {
+        applyManifold().catch(err => console.error(err));
+      }
+    }, 'applyManifold').name('Apply Manifold3D');
+  }
+
   // ─── Actions ──────────────────────────────────────────────────────────────
 
-  gui.add({
+  const actionsFolder = gui.addFolder('Actions');
+
+  actionsFolder.add({
     reset() {
       Object.assign(params, DEFAULTS);
       gui.controllersRecursive().forEach(c => c.updateDisplay());
