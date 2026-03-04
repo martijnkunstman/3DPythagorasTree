@@ -81,7 +81,7 @@ export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRende
   // ─── View ─────────────────────────────────────────────────────────────────
 
   const viewFolder = gui.addFolder('View');
-  viewFolder.add(params, 'renderMode', ['solid', 'wireframe', 'edges'])
+  viewFolder.add(params, 'renderMode', ['solid', 'wireframe', 'edges', 'visible'])
     .name('Render Mode')
     .onChange(setRenderMode);
   viewFolder.add(params, 'viewMode', ['perspective', 'top', 'front', 'left'])
@@ -89,8 +89,6 @@ export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRende
     .onChange(setView);
 
   // ─── Actions ──────────────────────────────────────────────────────────────
-
-  gui.add({ rebuild }, 'rebuild').name('Rebuild Now');
 
   gui.add({
     reset() {

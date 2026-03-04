@@ -9,19 +9,19 @@ import './style.css';
 const STORAGE_KEY = 'pythagorasTree.params';
 
 export const DEFAULTS = Object.freeze({
-  depth:           8,
+  depth:           7,
   angle:           45,
-  twist:           30,
-  branches:        2,
-  length:          1.5,
+  twist:           0,
+  branches:        3,
+  length:          2,
   shrinkFactor:    1.2,
-  startDiameter:   1.0,
+  startDiameter:   2.0,
   thicknessShrink: 1.5,
-  sides:           4,
+  sides:           6,
   trunkColor:      '#3b1a08',
   leafColor:       '#2d8a2d',
   autoRotateSpeed: 1.5,
-  renderMode:      'solid',
+  renderMode:      'visible',
   viewMode:        'perspective',
 });
 
@@ -83,30 +83,57 @@ orthoControls.enabled = false;
 
 let activeControls = perspControls;
 
+// ─── Materials ───────────────────────────────────────────────────────────────
+
+// Solid/wireframe material (vertex colours)
+const solidMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
+
+// Invisible depth-only mesh — fills the depth buffer so back edges are hidden
+// in 'visible' mode without drawing any colour.
+const depthOnlyMaterial = new THREE.MeshBasicMaterial({
+  colorWrite: false,
+  depthWrite: true,
+  side: THREE.FrontSide,
+});
+
+// Edge line material — white lines, depth-tested so back edges are hidden.
+const edgesMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: true });
+
 // ─── Tree ────────────────────────────────────────────────────────────────────
 
-const solidMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
-const edgesMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
-
-let treeMesh  = null;
-let edgesMesh = null;
+let treeMesh   = null;
+let depthMesh  = null;
+let edgesMesh  = null;
 
 function applyRenderModeVisibility(mode) {
   solidMaterial.wireframe = (mode === 'wireframe');
-  treeMesh.visible  = (mode !== 'edges');
-  edgesMesh.visible = (mode === 'edges');
+  treeMesh.visible  = (mode === 'solid' || mode === 'wireframe');
+  depthMesh.visible = (mode === 'visible');
+  edgesMesh.visible = (mode === 'edges' || mode === 'visible');
 }
 
 export function rebuild() {
   if (treeMesh)  { treeMesh.geometry.dispose();  scene.remove(treeMesh);  }
+  if (depthMesh) { depthMesh.geometry.dispose(); scene.remove(depthMesh); }
   if (edgesMesh) { edgesMesh.geometry.dispose(); scene.remove(edgesMesh); }
 
   const geometry = buildTree(params);
-  treeMesh  = new THREE.Mesh(geometry, solidMaterial);
-  edgesMesh = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), edgesMaterial);
+  const edgesGeo = new THREE.EdgesGeometry(geometry);
 
-  scene.add(treeMesh);
+  // depthMesh renders first (renderOrder 0) to seed the depth buffer
+  depthMesh = new THREE.Mesh(geometry, depthOnlyMaterial);
+  depthMesh.renderOrder = 0;
+
+  // edgesMesh tests against the depth buffer (renderOrder 1)
+  edgesMesh = new THREE.LineSegments(edgesGeo, edgesMaterial);
+  edgesMesh.renderOrder = 1;
+
+  treeMesh = new THREE.Mesh(geometry, solidMaterial);
+
+  scene.add(depthMesh);
   scene.add(edgesMesh);
+  scene.add(treeMesh);
+
   applyRenderModeVisibility(params.renderMode);
   saveParams();
 }
