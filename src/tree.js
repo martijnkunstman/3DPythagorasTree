@@ -287,3 +287,120 @@ export async function buildTreeManifold(params) {
 
   return geo;
 }
+
+/**
+ * Build a true Manifold unified geometry using the line/skeleton method.
+ */
+export async function buildTreeManifoldLineBased(params) {
+  const m = await initManifold();
+
+  const maxDepth = params.depth;
+  const splitAngle = THREE.MathUtils.degToRad(params.angle);
+  const twistPerLevel = THREE.MathUtils.degToRad(params.twist);
+  const sides = Math.round(params.sides);
+  const trunkColor = new THREE.Color(params.trunkColor);
+  const leafColor = new THREE.Color(params.leafColor);
+
+  const mList = [];
+  const lines = [];
+
+  // Phase 1: Build the 3D model out of lines (skeleton)
+  function recurseLines(parentMatrix, size, length, depth, twistAccum) {
+    const t = maxDepth > 1 ? depth / (maxDepth - 1) : 1;
+    const color = trunkColor.clone().lerp(leafColor, t);
+    const childSize = size / params.thicknessShrink;
+    const childLength = length / params.shrinkFactor;
+
+    lines.push({
+      matrix: parentMatrix.clone(),
+      length: length,
+      sizeBottom: size,
+      sizeTop: childSize,
+      color: color,
+      depth: depth
+    });
+
+    if (depth < maxDepth - 1) {
+      const N = Math.round(params.branches);
+
+      for (let i = 0; i < N; i++) {
+        const azimuth = twistAccum + (2 * Math.PI * i / N);
+        const childMatrix = parentMatrix.clone()
+          .multiply(new THREE.Matrix4().makeTranslation(0, length / 2, 0))
+          .multiply(new THREE.Matrix4().makeRotationY(azimuth))
+          .multiply(new THREE.Matrix4().makeRotationZ(splitAngle))
+          .multiply(new THREE.Matrix4().makeTranslation(0, childLength / 2, 0));
+
+        recurseLines(childMatrix, childSize, childLength, depth + 1, twistAccum + twistPerLevel);
+      }
+    }
+  }
+
+  recurseLines(new THREE.Matrix4(), params.startDiameter, params.length, 0, 0);
+
+  // Phase 2: Convert lines to Manifold cylinders
+  for (const line of lines) {
+    // Manifold.cylinder(height, radiusLow, radiusHigh, circularSegments, center = false)
+    const cyl = m.Manifold.cylinder(line.length, line.sizeBottom / 2, line.sizeTop / 2, sides, true);
+    let mesh = cyl.getMesh();
+
+    mesh.numProp = 6;
+    const newProps = new Float32Array((mesh.vertProperties.length / 3) * 6);
+    for (let i = 0, j = 0; i < mesh.vertProperties.length; i += 3, j += 6) {
+      newProps[j] = mesh.vertProperties[i];
+      newProps[j + 1] = mesh.vertProperties[i + 1];
+      newProps[j + 2] = mesh.vertProperties[i + 2];
+      newProps[j + 3] = line.color.r;
+      newProps[j + 4] = line.color.g;
+      newProps[j + 5] = line.color.b;
+    }
+    mesh.vertProperties = newProps;
+    let nodeManifold = new m.Manifold(mesh);
+
+    const alignMtx = new THREE.Matrix4().makeRotationX(-Math.PI / 2);
+    const nodeMatrix = line.matrix.clone().multiply(alignMtx);
+
+    const flatMatrix = Array.from(nodeMatrix.elements);
+    nodeManifold = nodeManifold.transform(flatMatrix);
+
+    mList.push(nodeManifold);
+  }
+
+  if (mList.length === 0) return new THREE.BufferGeometry();
+
+  let finalManifold = m.Manifold.union(mList);
+
+  if (params.manifoldSmoothness > 0 || params.manifoldRefine > 1) {
+    if (params.manifoldSmoothness > 0) {
+      finalManifold = finalManifold.smoothOut(params.manifoldSharpAngle, params.manifoldSmoothness);
+    }
+    if (params.manifoldRefine > 1) {
+      finalManifold = finalManifold.refine(params.manifoldRefine);
+    }
+  }
+
+  const finalMesh = finalManifold.getMesh();
+  const geo = new THREE.BufferGeometry();
+
+  const numVerts = finalMesh.vertProperties.length / finalMesh.numProp;
+  const positions = new Float32Array(numVerts * 3);
+  const colors = new Float32Array(numVerts * 3);
+
+  for (let i = 0; i < numVerts; i++) {
+    const propIdx = i * finalMesh.numProp;
+    positions[i * 3] = finalMesh.vertProperties[propIdx];
+    positions[i * 3 + 1] = finalMesh.vertProperties[propIdx + 1];
+    positions[i * 3 + 2] = finalMesh.vertProperties[propIdx + 2];
+
+    colors[i * 3] = finalMesh.vertProperties[propIdx + 3];
+    colors[i * 3 + 1] = finalMesh.vertProperties[propIdx + 4];
+    colors[i * 3 + 2] = finalMesh.vertProperties[propIdx + 5];
+  }
+
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setIndex(new THREE.BufferAttribute(finalMesh.triVerts, 1));
+  geo.computeVertexNormals();
+
+  return geo;
+}

@@ -48,7 +48,7 @@ export function createGUI(params, DEFAULTS, rebuild, controls, setView, setRende
   branchFolder.add(params, 'sides', 3, 8, 1)
     .name('Sides (3–8)')
     .onChange(debouncedRebuild);
-  branchFolder.add(params, 'startDiameter', 0.2, 2.0, 0.05)
+  branchFolder.add(params, 'startDiameter', 0.2, 4.0, 0.05)
     .name('Start Diameter')
     .onChange(debouncedRebuild);
   branchFolder.add(params, 'thicknessShrink', 1, 2, 0.05)

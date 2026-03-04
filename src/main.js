@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { buildTree, buildTreeLineBased, buildTreeManifold } from './tree.js';
+import { buildTree, buildTreeLineBased, buildTreeManifold, buildTreeManifoldLineBased } from './tree.js';
 import { createGUI } from './gui.js';
 import './style.css';
 
@@ -9,11 +9,11 @@ import './style.css';
 const STORAGE_KEY = 'pythagorasTree.params';
 
 export const DEFAULTS = Object.freeze({
-  depth: 7,
+  depth: 6,
   angle: 45,
   twist: 0,
-  branches: 3,
-  buildMode: 'standard',
+  branches: 4,
+  buildMode: 'lineBased',
   length: 2,
   shrinkFactor: 1.2,
   startDiameter: 2.0,
@@ -145,7 +145,7 @@ export function rebuild() {
 export async function applyManifold() {
   document.body.style.cursor = 'wait';
   try {
-    const geometry = await buildTreeManifold(params);
+    const geometry = params.buildMode === 'lineBased' ? await buildTreeManifoldLineBased(params) : await buildTreeManifold(params);
     const edgesGeo = new THREE.EdgesGeometry(geometry);
 
     treeMesh.geometry.dispose();
